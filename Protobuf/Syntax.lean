@@ -571,19 +571,21 @@ def enum : Parsec Enum := do
 
 ---- Message Definition
 
-inductive MessageBodyEntry (α : Type u) where
+mutual
+inductive MessageBodyEntry where
   | field (o : Field)
   | enum (e : Enum)
-  | message (m : α)
+  | message (m : Message)
   | option (o : Option')
   | oneof (o : Oneof)
   | mapField (m : MapField)
   | reserved (r : Reserved)
 
 inductive Message where
-  | message (m : String × (Array (MessageBodyEntry Message)))
+  | message (m : String × Array MessageBodyEntry)
+end
 
-def messageBody (message : Parsec Message) : Parsec (Array (MessageBodyEntry Message)) :=
+def messageBody (message : Parsec Message) : Parsec (Array MessageBodyEntry) :=
   let entry := (MessageBodyEntry.field <$> field) <|>
     (MessageBodyEntry.enum <$> enum) <|>
     (MessageBodyEntry.message <$> message) <|>
