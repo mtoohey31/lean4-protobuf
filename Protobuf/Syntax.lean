@@ -643,7 +643,7 @@ inductive MessageBodyEntry where
   deriving Repr
 
 inductive Message where
-  | message (m : String × Array MessageBodyEntry)
+  | m (name : String) (body : Array MessageBodyEntry)
   deriving Repr
 end
 
@@ -667,7 +667,7 @@ partial def message : Parsec Message := do
   let name <- messageName
   ws
   let body <- messageBody message
-  return Message.message (name, body)
+  return Message.m name body
 
 ---- Service Definition
 
