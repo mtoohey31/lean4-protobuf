@@ -27,13 +27,13 @@
       };
       inherit (pkgs) lean4-protobuf mkShell;
       leanPkgs = inputs.lean.packages.${system};
-      inherit (leanPkgs) lean;
+      inherit (leanPkgs) lean-all;
     in
     {
       packages.default = lean4-protobuf.modRoot;
 
       devShells.default = mkShell {
-        packages = [ lean ];
+        packages = [ lean-all ];
       };
     });
 }
