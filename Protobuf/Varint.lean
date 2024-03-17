@@ -26,7 +26,6 @@ def readUvarintCore [Stream ρ UInt8] (xs : ρ) (shift acc : Nat)
 /--
 Read an unsigned varint from `xs`.
 -/
-private
 def readUvarint [Stream ρ UInt8] (xs : ρ) : Except VarintError (Nat × ρ) :=
   readUvarintCore xs 0 0 (first := true)
 
@@ -81,6 +80,69 @@ def readVarint! [Stream ρ UInt8] [Inhabited ρ] (xs : ρ) : Int × ρ :=
   | error VarintError.end => panic! "stream was empty"
   | error VarintError.unexpectedEnd => panic! "stream contained invalid varint"
 
--- TODO: readUvarint{8,16,32,64}!?
+inductive BoundedVarintError where
+  | end
+  | unexpectedEnd
+  | overflow
+  deriving Inhabited, Repr
+
+/-
+PERF: Alternate core implementation for bounded uvarints that reports overflow
+immediately when one is guaranteed.
+-/
+
+/--
+Read an unsigned varint which should fit in a `UInt32` from `xs`.
+-/
+def readUvarint32 [Stream ρ UInt8] (xs : ρ) :
+    Except BoundedVarintError (UInt32 × ρ) :=
+  match readUvarintCore xs 0 0 (first := true) with
+  | error VarintError.end => error BoundedVarintError.end
+  | error VarintError.unexpectedEnd => error BoundedVarintError.unexpectedEnd
+  | ok (n, xs') =>
+    if h : n < UInt32.size then
+      ok (UInt32.ofNatCore n h, xs')
+    else
+      error BoundedVarintError.overflow
+
+/--
+Read an unsigned varint which should fit in a `UInt32` from `xs`, or panic if
+one cannot be read.
+-/
+def readUvarint32! [Stream ρ UInt8] [Inhabited ρ] (xs : ρ) : UInt32 × ρ :=
+  match readUvarint32 xs with
+  | ok res => res
+  | error BoundedVarintError.end => panic! "stream was empty"
+  | error BoundedVarintError.unexpectedEnd =>
+    panic! "stream contained invalid uvarint"
+  | error BoundedVarintError.overflow =>
+    panic! "stream contained uvarint that overflowed uint32"
+
+/--
+Read an unsigned varint which should fit in a `UInt64` from `xs`.
+-/
+def readUvarint64 [Stream ρ UInt8] (xs : ρ) :
+    Except BoundedVarintError (UInt64 × ρ) :=
+  match readUvarintCore xs 0 0 (first := true) with
+  | error VarintError.end => error BoundedVarintError.end
+  | error VarintError.unexpectedEnd => error BoundedVarintError.unexpectedEnd
+  | ok (n, xs') =>
+    if h : n < UInt64.size then
+      ok (UInt64.ofNatCore n h, xs')
+    else
+      error BoundedVarintError.overflow
+
+/--
+Read an unsigned varint which should fit in a `UInt64` from `xs`, or panic if
+one cannot be read.
+-/
+def readUvarint64! [Stream ρ UInt8] [Inhabited ρ] (xs : ρ) : UInt64 × ρ :=
+  match readUvarint64 xs with
+  | ok res => res
+  | error BoundedVarintError.end => panic! "stream was empty"
+  | error BoundedVarintError.unexpectedEnd =>
+    panic! "stream contained invalid uvarint"
+  | error BoundedVarintError.overflow =>
+    panic! "stream contained uvarint that overflowed uint64"
 
 end Protobuf.Varint
