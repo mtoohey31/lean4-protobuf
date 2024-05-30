@@ -163,4 +163,16 @@ def encVarint (i : Int) : List UInt8 :=
   else
     encUvarint $ i.toNat <<< 1
 
+/--
+Encode `n` which fits in a `UInt32` as an unsigned varint.
+-/
+partial
+def encUvarint32 (n : UInt32) : List UInt8 := encUvarint n.toNat
+
+/--
+Encode `n` which fits in a `UInt64` as an unsigned varint.
+-/
+partial
+def encUvarint64 (n : UInt64) : List UInt8 := encUvarint n.toNat
+
 end Protobuf.Varint
