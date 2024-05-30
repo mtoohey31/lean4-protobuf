@@ -1,7 +1,10 @@
 import Lake
 open Lake DSL
 
-package «protobuf»
+package protobuf
+
+require mathlib from git
+  "https://github.com/leanprover-community/mathlib4.git"@"v4.4.0"
 
 @[default_target]
-lean_lib «Protobuf»
+lean_lib Protobuf

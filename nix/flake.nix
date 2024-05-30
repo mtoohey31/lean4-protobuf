@@ -25,15 +25,11 @@
         overlays = [ self.overlays.default ];
         inherit system;
       };
-      inherit (pkgs) lean4-protobuf mkShell;
-      leanPkgs = inputs.lean.packages.${system};
-      inherit (leanPkgs) lean-all;
+      inherit (pkgs) elan lean4-protobuf mkShell;
     in
     {
       packages.default = lean4-protobuf.modRoot;
 
-      devShells.default = mkShell {
-        packages = [ lean-all ];
-      };
+      devShells.default = mkShell { packages = [ elan ]; };
     });
 }

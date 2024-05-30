@@ -1,6 +1,7 @@
 import Init.Data.UInt.Basic
 import Init.Data.Option.Basic
 import Lean.Elab.Do
+import Mathlib.Tactic
 
 namespace Protobuf.Varint
 
@@ -189,11 +190,17 @@ def decUvarint64! [Stream ρ UInt8] [Inhabited ρ] (xs : ρ) : UInt64 × ρ :=
 /--
 Encode `n` as an unsigned varint.
 -/
-partial
 def encUvarint (n : Nat) : List UInt8 := if n ≤ 0b1111111 then
     [UInt8.ofNat n]
   else
     UInt8.ofNat ((n &&& 0b1111111) ||| 0b10000000) :: encUvarint (n >>> 7)
+decreasing_by
+  all_goals simp_wf
+  show Nat.shiftRight n 7 < n
+  simp [Nat.shiftRight, Nat.div_div_eq_div_mul]
+  apply Nat.div_lt_self
+  . linarith
+  . decide
 
 /--
 Encode `i` as a varint.
@@ -207,25 +214,21 @@ def encVarint (i : Int) : List UInt8 :=
 /--
 Encode `n` which fits in a `UInt8` as an unsigned varint.
 -/
-partial
 def encUvarint8 (n : UInt8) : List UInt8 := encUvarint n.toNat
 
 /--
 Encode `n` which fits in a `UInt16` as an unsigned varint.
 -/
-partial
 def encUvarint16 (n : UInt16) : List UInt8 := encUvarint n.toNat
 
 /--
 Encode `n` which fits in a `UInt32` as an unsigned varint.
 -/
-partial
 def encUvarint32 (n : UInt32) : List UInt8 := encUvarint n.toNat
 
 /--
 Encode `n` which fits in a `UInt64` as an unsigned varint.
 -/
-partial
 def encUvarint64 (n : UInt64) : List UInt8 := encUvarint n.toNat
 
 end Protobuf.Varint
