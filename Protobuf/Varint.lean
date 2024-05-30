@@ -145,4 +145,22 @@ def decUvarint64! [Stream ρ UInt8] [Inhabited ρ] (xs : ρ) : UInt64 × ρ :=
   | error BoundedVarintError.overflow =>
     panic! "stream contained uvarint that overflowed uint64"
 
+/--
+Encode `n` as an unsigned varint.
+-/
+partial
+def encUvarint (n : Nat) : List UInt8 := if n ≤ 0b1111111 then
+    [UInt8.ofNat n]
+  else
+    UInt8.ofNat ((n &&& 0b1111111) ||| 0b10000000) :: encUvarint (n >>> 7)
+
+/--
+Encode `i` as a varint.
+-/
+def encVarint (i : Int) : List UInt8 :=
+  if i < 0 then
+    encUvarint $ (-i - 1).toNat <<< 1 ||| 1
+  else
+    encUvarint $ i.toNat <<< 1
+
 end Protobuf.Varint
