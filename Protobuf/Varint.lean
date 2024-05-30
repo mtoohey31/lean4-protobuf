@@ -92,6 +92,47 @@ immediately when one is guaranteed.
 -/
 
 /--
+Decode an unsigned varint which should fit in a `UInt8` from `xs`.
+-/
+def decUvarint8 [Stream ρ UInt8] (xs : ρ) :
+    Except BoundedVarintError (UInt8 × ρ) :=
+  match decUvarintCore xs 0 0 (first := true) with
+  | error VarintError.end => error BoundedVarintError.end
+  | error VarintError.unexpectedEnd => error BoundedVarintError.unexpectedEnd
+  | ok (n, xs') =>
+    if h : n < UInt8.size then
+      ok (UInt8.ofNatCore n h, xs')
+    else
+      error BoundedVarintError.overflow
+
+/--
+Decode an unsigned varint which should fit in a `UInt16` from `xs`.
+-/
+def decUvarint16 [Stream ρ UInt8] (xs : ρ) :
+    Except BoundedVarintError (UInt16 × ρ) :=
+  match decUvarintCore xs 0 0 (first := true) with
+  | error VarintError.end => error BoundedVarintError.end
+  | error VarintError.unexpectedEnd => error BoundedVarintError.unexpectedEnd
+  | ok (n, xs') =>
+    if h : n < UInt16.size then
+      ok (UInt16.ofNatCore n h, xs')
+    else
+      error BoundedVarintError.overflow
+
+/--
+Decode an unsigned varint which should fit in a `UInt16` from `xs`, or panic if
+one cannot be decoded.
+-/
+def decUvarint16! [Stream ρ UInt8] [Inhabited ρ] (xs : ρ) : UInt16 × ρ :=
+  match decUvarint16 xs with
+  | ok res => res
+  | error BoundedVarintError.end => panic! "stream was empty"
+  | error BoundedVarintError.unexpectedEnd =>
+    panic! "stream contained invalid uvarint"
+  | error BoundedVarintError.overflow =>
+    panic! "stream contained uvarint that overflowed uint16"
+
+/--
 Decode an unsigned varint which should fit in a `UInt32` from `xs`.
 -/
 def decUvarint32 [Stream ρ UInt8] (xs : ρ) :
@@ -162,6 +203,18 @@ def encVarint (i : Int) : List UInt8 :=
     encUvarint $ (-i - 1).toNat <<< 1 ||| 1
   else
     encUvarint $ i.toNat <<< 1
+
+/--
+Encode `n` which fits in a `UInt8` as an unsigned varint.
+-/
+partial
+def encUvarint8 (n : UInt8) : List UInt8 := encUvarint n.toNat
+
+/--
+Encode `n` which fits in a `UInt16` as an unsigned varint.
+-/
+partial
+def encUvarint16 (n : UInt16) : List UInt8 := encUvarint n.toNat
 
 /--
 Encode `n` which fits in a `UInt32` as an unsigned varint.
