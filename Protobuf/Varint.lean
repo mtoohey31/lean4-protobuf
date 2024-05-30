@@ -20,7 +20,7 @@ def decUvarintCore [Stream ρ UInt8] (xs : ρ) (shift acc : Nat)
     if x &&& 0x80 = 0 then
       ok ((x &&& 0b1111111).toNat <<< shift + acc, xs')
     else
-      decUvarintCore xs' (shift + 7) (x.toNat <<< shift + acc)
+      decUvarintCore xs' (shift + 7) ((x &&& 0b1111111).toNat <<< shift + acc)
   | none => error $ if first then VarintError.end else VarintError.unexpectedEnd
 
 /--
@@ -45,7 +45,7 @@ def decVarintCore [Stream ρ UInt8] (xs : ρ) (shift : Nat) (acc : Int)
   match Stream.next? xs with
   | some (x, xs') =>
     let x' := if negative then
-        (Int.ofNat ((x &&& 0b1111111).toNat <<< shift) - (0x80 <<< shift))
+        -(Int.ofNat ((x &&& 0b1111111).toNat <<< shift))
       else
         Int.ofNat ((x &&& 0b1111111).toNat <<< shift)
     if x &&& 0x80 = 0 then
@@ -62,7 +62,7 @@ def decVarint [Stream ρ UInt8] (xs : ρ) : Except VarintError (Int × ρ) :=
   | some (x, xs') =>
     let negative := x &&& 1 = 1
     let x' := if negative then
-        (Int.ofNat (x >>> 1 &&& 0b111111).toNat - 0x40)
+        -(Int.ofNat (x >>> 1 &&& 0b111111).toNat + 1)
       else
         Int.ofNat (x >>> 1 &&& 0b111111).toNat
     if x &&& 0x80 = 0 then
