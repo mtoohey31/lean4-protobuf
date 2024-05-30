@@ -187,13 +187,11 @@ def decUvarint64! [Stream ρ UInt8] [Inhabited ρ] (xs : ρ) : UInt64 × ρ :=
   | error BoundedVarintError.overflow =>
     panic! "stream contained uvarint that overflowed uint64"
 
-/--
-Encode `n` as an unsigned varint.
--/
-def encUvarint (n : Nat) : List UInt8 := if n ≤ 0b1111111 then
-    [UInt8.ofNat n]
+def encUvarintCore (n : Nat) (acc : List UInt8) : List UInt8 :=
+  if n ≤ 0b1111111 then
+    UInt8.ofNat n :: acc.reverse
   else
-    UInt8.ofNat ((n &&& 0b1111111) ||| 0b10000000) :: encUvarint (n >>> 7)
+    encUvarintCore (n >>> 7) (UInt8.ofNat ((n &&& 0b1111111) ||| 0b10000000) :: acc)
 decreasing_by
   all_goals simp_wf
   show Nat.shiftRight n 7 < n
@@ -201,6 +199,11 @@ decreasing_by
   apply Nat.div_lt_self
   . linarith
   . decide
+
+/--
+Encode `n` as an unsigned varint.
+-/
+def encUvarint (n : Nat) : List UInt8 := encUvarintCore n []
 
 /--
 Encode `i` as a varint.
