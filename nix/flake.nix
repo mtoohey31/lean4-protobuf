@@ -4,10 +4,10 @@
   inputs = {
     nixpkgs.follows = "lean/nixpkgs";
     utils.follows = "lean/flake-utils";
-    lean.url = "github:leanprover/lean4/v4.4.0";
+    lean.url = "github:leanprover/lean4/v4.6.0";
   };
 
-  outputs = { self, nixpkgs, utils, lean }@inputs: {
+  outputs = { self, nixpkgs, utils, lean }: {
     overlays.default = final: prev: {
       # Use of `stdenv.hostPlatform` is fine cause buildLeanPackage doesn't
       # appear to support cross compiling anyway since it also references
