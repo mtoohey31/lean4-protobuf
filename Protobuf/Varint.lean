@@ -4,6 +4,7 @@ import Init.Data.Option.Basic
 import Lean.Elab.Do
 import Mathlib.Tactic
 import Mathlib.Algebra.Order.Floor.Div
+import Protobuf.Data.SizedStream
 
 namespace Protobuf.Varint
 
@@ -14,38 +15,44 @@ inductive VarintError where
   | unexpectedEnd
   deriving Inhabited, Repr
 
+-- TODO: Support partial dec- variants that operate on unsized streams.
+
+set_option linter.unusedVariables false in
 private
-partial
-def decUvarintCore [Stream ρ UInt8] (xs : ρ) (shift acc : Nat)
+def decUvarintCore [SizedStream ρ UInt8] (xs : ρ) (shift acc : Nat)
     (first : Bool := false) : Except VarintError (Nat × ρ) :=
-  match Stream.next? xs with
+  match h : Stream.next? xs with
   | some (x, xs') =>
     if x &&& 0x80 = 0 then
       ok ((x &&& 0b1111111).toNat <<< shift + acc, xs')
     else
       decUvarintCore xs' (shift + 7) ((x &&& 0b1111111).toNat <<< shift + acc)
   | none => error $ if first then VarintError.end else VarintError.unexpectedEnd
+termination_by SizedStream.size xs
+decreasing_by
+  all_goals simp_wf
+  apply SizedStream.size_dec xs xs' h
 
 /--
 Decode an unsigned varint from `xs`.
 -/
-def decUvarint [Stream ρ UInt8] (xs : ρ) : Except VarintError (Nat × ρ) :=
+def decUvarint [SizedStream ρ UInt8] (xs : ρ) : Except VarintError (Nat × ρ) :=
   decUvarintCore xs 0 0 (first := true)
 
 /--
 Decode an unsigned varint from `xs`, or panic if one cannot be decoded.
 -/
-def decUvarint! [Stream ρ UInt8] [Inhabited ρ] (xs : ρ) : Nat × ρ :=
+def decUvarint! [SizedStream ρ UInt8] [Inhabited ρ] (xs : ρ) : Nat × ρ :=
   match decUvarint xs with
   | ok res => res
   | error VarintError.end => panic! "stream was empty"
   | error VarintError.unexpectedEnd => panic! "stream contained invalid uvarint"
 
+set_option linter.unusedVariables false in
 private
-partial
-def decVarintCore [Stream ρ UInt8] (xs : ρ) (shift : Nat) (acc : Int)
+def decVarintCore [SizedStream ρ UInt8] (xs : ρ) (shift : Nat) (acc : Int)
     (negative : Bool) : Except VarintError (Int × ρ) :=
-  match Stream.next? xs with
+  match h : Stream.next? xs with
   | some (x, xs') =>
     let x' := if negative then
         -(Int.ofNat ((x &&& 0b1111111).toNat <<< shift))
@@ -56,11 +63,15 @@ def decVarintCore [Stream ρ UInt8] (xs : ρ) (shift : Nat) (acc : Int)
     else
       decVarintCore xs' (shift + 7) (x' + acc) negative
   | none => error VarintError.unexpectedEnd
+termination_by SizedStream.size xs
+decreasing_by
+  all_goals simp_wf
+  apply SizedStream.size_dec xs xs' h
 
 /--
 Decode a varint from `xs`.
 -/
-def decVarint [Stream ρ UInt8] (xs : ρ) : Except VarintError (Int × ρ) :=
+def decVarint [SizedStream ρ UInt8] (xs : ρ) : Except VarintError (Int × ρ) :=
   match Stream.next? xs with
   | some (x, xs') =>
     let negative := x &&& 1 = 1
@@ -77,7 +88,7 @@ def decVarint [Stream ρ UInt8] (xs : ρ) : Except VarintError (Int × ρ) :=
 /--
 Decode a varint from `xs`, or panic if one cannot be decoded.
 -/
-def decVarint! [Stream ρ UInt8] [Inhabited ρ] (xs : ρ) : Int × ρ :=
+def decVarint! [SizedStream ρ UInt8] [Inhabited ρ] (xs : ρ) : Int × ρ :=
   match decVarint xs with
   | ok res => res
   | error VarintError.end => panic! "stream was empty"
@@ -97,7 +108,7 @@ immediately when one is guaranteed.
 /--
 Decode an unsigned varint which should fit in a `UInt8` from `xs`.
 -/
-def decUvarint8 [Stream ρ UInt8] (xs : ρ) :
+def decUvarint8 [SizedStream ρ UInt8] (xs : ρ) :
     Except BoundedVarintError (UInt8 × ρ) :=
   match decUvarintCore xs 0 0 (first := true) with
   | error VarintError.end => error BoundedVarintError.end
@@ -111,7 +122,7 @@ def decUvarint8 [Stream ρ UInt8] (xs : ρ) :
 /--
 Decode an unsigned varint which should fit in a `UInt16` from `xs`.
 -/
-def decUvarint16 [Stream ρ UInt8] (xs : ρ) :
+def decUvarint16 [SizedStream ρ UInt8] (xs : ρ) :
     Except BoundedVarintError (UInt16 × ρ) :=
   match decUvarintCore xs 0 0 (first := true) with
   | error VarintError.end => error BoundedVarintError.end
@@ -126,7 +137,7 @@ def decUvarint16 [Stream ρ UInt8] (xs : ρ) :
 Decode an unsigned varint which should fit in a `UInt16` from `xs`, or panic if
 one cannot be decoded.
 -/
-def decUvarint16! [Stream ρ UInt8] [Inhabited ρ] (xs : ρ) : UInt16 × ρ :=
+def decUvarint16! [SizedStream ρ UInt8] [Inhabited ρ] (xs : ρ) : UInt16 × ρ :=
   match decUvarint16 xs with
   | ok res => res
   | error BoundedVarintError.end => panic! "stream was empty"
@@ -138,7 +149,7 @@ def decUvarint16! [Stream ρ UInt8] [Inhabited ρ] (xs : ρ) : UInt16 × ρ :=
 /--
 Decode an unsigned varint which should fit in a `UInt32` from `xs`.
 -/
-def decUvarint32 [Stream ρ UInt8] (xs : ρ) :
+def decUvarint32 [SizedStream ρ UInt8] (xs : ρ) :
     Except BoundedVarintError (UInt32 × ρ) :=
   match decUvarintCore xs 0 0 (first := true) with
   | error VarintError.end => error BoundedVarintError.end
@@ -153,7 +164,7 @@ def decUvarint32 [Stream ρ UInt8] (xs : ρ) :
 Decode an unsigned varint which should fit in a `UInt32` from `xs`, or panic if
 one cannot be decoded.
 -/
-def decUvarint32! [Stream ρ UInt8] [Inhabited ρ] (xs : ρ) : UInt32 × ρ :=
+def decUvarint32! [SizedStream ρ UInt8] [Inhabited ρ] (xs : ρ) : UInt32 × ρ :=
   match decUvarint32 xs with
   | ok res => res
   | error BoundedVarintError.end => panic! "stream was empty"
@@ -165,7 +176,7 @@ def decUvarint32! [Stream ρ UInt8] [Inhabited ρ] (xs : ρ) : UInt32 × ρ :=
 /--
 Decode an unsigned varint which should fit in a `UInt64` from `xs`.
 -/
-def decUvarint64 [Stream ρ UInt8] (xs : ρ) :
+def decUvarint64 [SizedStream ρ UInt8] (xs : ρ) :
     Except BoundedVarintError (UInt64 × ρ) :=
   match decUvarintCore xs 0 0 (first := true) with
   | error VarintError.end => error BoundedVarintError.end
@@ -180,7 +191,7 @@ def decUvarint64 [Stream ρ UInt8] (xs : ρ) :
 Decode an unsigned varint which should fit in a `UInt64` from `xs`, or panic if
 one cannot be decoded.
 -/
-def decUvarint64! [Stream ρ UInt8] [Inhabited ρ] (xs : ρ) : UInt64 × ρ :=
+def decUvarint64! [SizedStream ρ UInt8] [Inhabited ρ] (xs : ρ) : UInt64 × ρ :=
   match decUvarint64 xs with
   | ok res => res
   | error BoundedVarintError.end => panic! "stream was empty"
