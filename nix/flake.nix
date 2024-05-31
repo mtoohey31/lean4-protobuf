@@ -4,7 +4,7 @@
   inputs = {
     nixpkgs.follows = "lean/nixpkgs";
     utils.follows = "lean/flake-utils";
-    lean.url = "github:leanprover/lean4/v4.6.0";
+    lean.url = "github:leanprover/lean4/v4.7.0";
   };
 
   outputs = { self, nixpkgs, utils, lean }: {

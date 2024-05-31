@@ -1,3 +1,4 @@
+import Init.Data.Nat.Bitwise.Lemmas
 import Init.Data.UInt.Basic
 import Init.Data.Option.Basic
 import Lean.Elab.Do
@@ -189,10 +190,14 @@ def decUvarint64! [Stream ρ UInt8] [Inhabited ρ] (xs : ρ) : UInt64 × ρ :=
     panic! "stream contained uvarint that overflowed uint64"
 
 def encUvarintCore (n : Nat) (acc : List UInt8) : List UInt8 :=
-  if n ≤ 0b1111111 then
-    UInt8.ofNat n :: acc.reverse
+  if h : n ≤ 0b1111111 then
+    UInt8.ofNatCore n (lt_of_le_of_lt h (by decide)) :: acc.reverse
   else
-    encUvarintCore (n >>> 7) (UInt8.ofNat ((n &&& 0b1111111) ||| 0b10000000) :: acc)
+    let x := (n &&& 0b1111111) ||| 0b10000000
+    have : x < UInt8.size := by
+      have and_lt : n &&& 0b1111111 < 2 ^ 8 := Nat.and_lt_two_pow n (by decide)
+      exact Nat.or_lt_two_pow and_lt (by decide)
+    encUvarintCore (n >>> 7) (UInt8.ofNatCore x this :: acc)
 termination_by n
 decreasing_by
   all_goals simp_wf
@@ -239,9 +244,9 @@ private
 theorem encUvarintCore_length_ge : (encUvarintCore n l).length ≥ 1 := by
   rw [encUvarintCore]
   by_cases h : n ≤ 127
-  . simp [if_pos h]
+  . simp [dif_pos h]
     linarith
-  . simp [if_neg h]
+  . simp [dif_neg h]
     exact encUvarintCore_length_ge
 termination_by n
 decreasing_by
@@ -301,7 +306,7 @@ theorem encUvarintCore_length_le :
   (encUvarintCore n l).length ≤ l.length + max 1 (Nat.clog 2 (n + 1) ⌈/⌉ 7) := by
   rw [encUvarintCore]
   by_cases h : n ≤ 127
-  . simp [if_pos h]
+  . simp [dif_pos h]
     by_cases h : 0 < n
     . have : Nat.clog 2 (n + 1) ⌈/⌉ 7 = 1 := by
         dsimp [Nat.instCeilDiv]
@@ -346,16 +351,20 @@ theorem encUvarintCore_length_le :
       simp [Nat.shiftRight, Nat.div_div_eq_div_mul]
       show 1 ≤ n / 128
       exact (Nat.one_le_div_iff (by decide)).mpr h
-    simp [if_neg h]
+    simp [dif_neg h]
     have prepend_length : ∀ x, List.length (x :: l) = List.length l + 1 := by simp
     have shiftRight7_bound : Nat.clog 2 (n + 1) ⌈/⌉ 7 =
       Nat.clog 2 (n >>> 7 + 1) ⌈/⌉ 7 + 1 := by
       rw [clog2_eq_clog2_shiftRight_add 7 h']
       apply divCeil_add_same
       decide
-    let x := UInt8.ofNat (n &&& 127 ||| 128)
+    let x := n &&& 127 ||| 128
+    have : x < UInt8.size := by
+      have and_lt : n &&& 127 < 2 ^ 8 := Nat.and_lt_two_pow n (by decide)
+      exact Nat.or_lt_two_pow and_lt (by decide)
+    let x' := UInt8.ofNatCore x this
     have : List.length l + max 1 (Nat.clog 2 (n + 1) ⌈/⌉ 7) =
-      List.length (x :: l) + max 1 (Nat.clog 2 (n >>> 7 + 1) ⌈/⌉ 7) := by
+      List.length (x' :: l) + max 1 (Nat.clog 2 (n >>> 7 + 1) ⌈/⌉ 7) := by
       calc
         List.length l + max 1 (Nat.clog 2 (n + 1) ⌈/⌉ 7) =
           List.length l + Nat.clog 2 (n + 1) ⌈/⌉ 7 := by
@@ -373,10 +382,10 @@ theorem encUvarintCore_length_le :
                   . decide
                   . linarith
                 . linarith
-        _ = List.length (x :: l) + Nat.clog 2 (n >>> 7 + 1) ⌈/⌉ 7 := by
+        _ = List.length (x' :: l) + Nat.clog 2 (n >>> 7 + 1) ⌈/⌉ 7 := by
           rw [prepend_length, shiftRight7_bound]
           linarith
-        _ = List.length (x :: l) + max 1 (Nat.clog 2 (n >>> 7 + 1) ⌈/⌉ 7) := by
+        _ = List.length (x' :: l) + max 1 (Nat.clog 2 (n >>> 7 + 1) ⌈/⌉ 7) := by
           have : 1 ≤ Nat.clog 2 (n >>> 7 + 1) ⌈/⌉ 7 := by
             dsimp [Nat.instCeilDiv]
             rw [Nat.div_eq, if_pos]
