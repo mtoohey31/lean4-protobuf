@@ -15,23 +15,57 @@ inductive VarintError where
   | unexpectedEnd
   deriving Inhabited, Repr
 
+inductive BoundedVarintError where
+  | end
+  | unexpectedEnd
+  | overflow
+  deriving Inhabited, Repr
+
+private
+inductive Output (acc : Nat) where
+  | unbounded
+  | bounded (bound : Nat) (inBound : acc < bound) (outType : Type)
+    (ofNatCore : (n : Nat) → (h : n < bound) → outType)
+
 -- TODO: Support partial dec- variants that operate on unsized streams.
 
 set_option linter.unusedVariables false in
 private
 def decUvarintCore [SizedStream ρ UInt8] (xs : ρ) (shift acc : Nat)
-    (first : Bool := false) : Except VarintError (Nat × ρ) :=
+    (output : Output acc := Output.unbounded) (first : Bool := false) :
+    let (errorType, outType) := match output with
+      | Output.unbounded => (VarintError, Nat)
+      | Output.bounded _ _ outType _ => (BoundedVarintError, outType)
+    Except errorType (outType × ρ) :=
   match h : Stream.next? xs with
   | some (x, xs') =>
     if x &&& 0x80 = 0 then
-      ok ((x &&& 0b1111111).toNat <<< shift + acc, xs')
+      let out := (x &&& 0b1111111).toNat <<< shift + acc
+      match output with
+      | Output.unbounded => ok (out, xs')
+      | Output.bounded bound inBound _ ofNatCore =>
+        if h' : out ≥ bound then
+          error BoundedVarintError.overflow
+        else
+          ok (ofNatCore out (by linarith), xs')
     else
-      decUvarintCore xs' (shift + 7) ((x &&& 0b1111111).toNat <<< shift + acc)
-  | none => error $ if first then VarintError.end else VarintError.unexpectedEnd
+      let acc' := (x &&& 0b1111111).toNat <<< shift + acc
+      match output with
+      | Output.unbounded => decUvarintCore xs' (shift + 7) acc'
+      | Output.bounded bound _ outType ofNatCore =>
+        if h' : acc' ≥ bound then
+          error BoundedVarintError.overflow
+        else
+          let output' := Output.bounded bound (by linarith) outType ofNatCore
+          decUvarintCore xs' (shift + 7) acc' output'
+  | none => error $ match first, output with
+    | true, Output.unbounded => VarintError.end
+    | false, Output.unbounded => VarintError.unexpectedEnd
+    | true, Output.bounded _ _ _ _ => BoundedVarintError.end
+    | false, Output.bounded _ _ _ _ => BoundedVarintError.unexpectedEnd
 termination_by SizedStream.size xs
 decreasing_by
-  all_goals simp_wf
-  apply SizedStream.size_dec xs xs' h
+  all_goals simp_wf <;> apply SizedStream.size_dec xs xs' h
 
 /--
 Decode an unsigned varint from `xs`.
@@ -94,111 +128,74 @@ def decVarint! [SizedStream ρ UInt8] [Inhabited ρ] (xs : ρ) : Int × ρ :=
   | error VarintError.end => panic! "stream was empty"
   | error VarintError.unexpectedEnd => panic! "stream contained invalid varint"
 
-inductive BoundedVarintError where
-  | end
-  | unexpectedEnd
-  | overflow
-  deriving Inhabited, Repr
-
-/-
-PERF: Alternate core implementation for bounded uvarints that reports overflow
-immediately when one is guaranteed.
--/
+private
+def getOk! [Inhabited α] (s : String) : Except BoundedVarintError α → α
+  | ok x => x
+  | error BoundedVarintError.end => panic! "stream was empty"
+  | error BoundedVarintError.unexpectedEnd =>
+    panic! "stream contained invalid uvarint"
+  | error BoundedVarintError.overflow =>
+    panic! "stream contained uvarint that overflowed " ++ s
 
 /--
 Decode an unsigned varint which should fit in a `UInt8` from `xs`.
 -/
 def decUvarint8 [SizedStream ρ UInt8] (xs : ρ) :
     Except BoundedVarintError (UInt8 × ρ) :=
-  match decUvarintCore xs 0 0 (first := true) with
-  | error VarintError.end => error BoundedVarintError.end
-  | error VarintError.unexpectedEnd => error BoundedVarintError.unexpectedEnd
-  | ok (n, xs') =>
-    if h : n < UInt8.size then
-      ok (UInt8.ofNatCore n h, xs')
-    else
-      error BoundedVarintError.overflow
+  let output := Output.bounded UInt8.size (by decide) UInt8 UInt8.ofNatCore
+  decUvarintCore xs 0 0 output
+
+/--
+Decode an unsigned varint which should fit in a `UInt8` from `xs`, or panic if
+one cannot be decoded.
+-/
+def decUvarint8! [SizedStream ρ UInt8] [Inhabited ρ] (xs : ρ) : UInt8 × ρ :=
+  getOk! "UInt8" $ decUvarint8 xs
 
 /--
 Decode an unsigned varint which should fit in a `UInt16` from `xs`.
 -/
 def decUvarint16 [SizedStream ρ UInt8] (xs : ρ) :
     Except BoundedVarintError (UInt16 × ρ) :=
-  match decUvarintCore xs 0 0 (first := true) with
-  | error VarintError.end => error BoundedVarintError.end
-  | error VarintError.unexpectedEnd => error BoundedVarintError.unexpectedEnd
-  | ok (n, xs') =>
-    if h : n < UInt16.size then
-      ok (UInt16.ofNatCore n h, xs')
-    else
-      error BoundedVarintError.overflow
+  let output := Output.bounded UInt16.size (by decide) UInt16 UInt16.ofNatCore
+  decUvarintCore xs 0 0 output
 
 /--
 Decode an unsigned varint which should fit in a `UInt16` from `xs`, or panic if
 one cannot be decoded.
 -/
 def decUvarint16! [SizedStream ρ UInt8] [Inhabited ρ] (xs : ρ) : UInt16 × ρ :=
-  match decUvarint16 xs with
-  | ok res => res
-  | error BoundedVarintError.end => panic! "stream was empty"
-  | error BoundedVarintError.unexpectedEnd =>
-    panic! "stream contained invalid uvarint"
-  | error BoundedVarintError.overflow =>
-    panic! "stream contained uvarint that overflowed uint16"
+  getOk! "UInt16" $ decUvarint16 xs
 
 /--
 Decode an unsigned varint which should fit in a `UInt32` from `xs`.
 -/
 def decUvarint32 [SizedStream ρ UInt8] (xs : ρ) :
     Except BoundedVarintError (UInt32 × ρ) :=
-  match decUvarintCore xs 0 0 (first := true) with
-  | error VarintError.end => error BoundedVarintError.end
-  | error VarintError.unexpectedEnd => error BoundedVarintError.unexpectedEnd
-  | ok (n, xs') =>
-    if h : n < UInt32.size then
-      ok (UInt32.ofNatCore n h, xs')
-    else
-      error BoundedVarintError.overflow
+  let output := Output.bounded UInt32.size (by decide) UInt32 UInt32.ofNatCore
+  decUvarintCore xs 0 0 output
 
 /--
 Decode an unsigned varint which should fit in a `UInt32` from `xs`, or panic if
 one cannot be decoded.
 -/
 def decUvarint32! [SizedStream ρ UInt8] [Inhabited ρ] (xs : ρ) : UInt32 × ρ :=
-  match decUvarint32 xs with
-  | ok res => res
-  | error BoundedVarintError.end => panic! "stream was empty"
-  | error BoundedVarintError.unexpectedEnd =>
-    panic! "stream contained invalid uvarint"
-  | error BoundedVarintError.overflow =>
-    panic! "stream contained uvarint that overflowed uint32"
+  getOk! "UInt32" $ decUvarint32 xs
 
 /--
 Decode an unsigned varint which should fit in a `UInt64` from `xs`.
 -/
 def decUvarint64 [SizedStream ρ UInt8] (xs : ρ) :
     Except BoundedVarintError (UInt64 × ρ) :=
-  match decUvarintCore xs 0 0 (first := true) with
-  | error VarintError.end => error BoundedVarintError.end
-  | error VarintError.unexpectedEnd => error BoundedVarintError.unexpectedEnd
-  | ok (n, xs') =>
-    if h : n < UInt64.size then
-      ok (UInt64.ofNatCore n h, xs')
-    else
-      error BoundedVarintError.overflow
+  let output := Output.bounded UInt64.size (by decide) UInt64 UInt64.ofNatCore
+  decUvarintCore xs 0 0 output
 
 /--
 Decode an unsigned varint which should fit in a `UInt64` from `xs`, or panic if
 one cannot be decoded.
 -/
 def decUvarint64! [SizedStream ρ UInt8] [Inhabited ρ] (xs : ρ) : UInt64 × ρ :=
-  match decUvarint64 xs with
-  | ok res => res
-  | error BoundedVarintError.end => panic! "stream was empty"
-  | error BoundedVarintError.unexpectedEnd =>
-    panic! "stream contained invalid uvarint"
-  | error BoundedVarintError.overflow =>
-    panic! "stream contained uvarint that overflowed uint64"
+  getOk! "UInt64" $ decUvarint64 xs
 
 def encUvarintCore (n : Nat) (acc : List UInt8) : List UInt8 :=
   if h : n ≤ 0b1111111 then
