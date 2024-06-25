@@ -295,6 +295,8 @@ Encode `n` which fits in a `UInt64` as an unsigned varint.
 -/
 def encUvarint64 (n : UInt64) : List UInt8 := encUvarint n.toNat
 
+-- TODO: Clean up proofs.
+
 private
 theorem encCore_length_ge : (encCore n l).length ≥ 1 := by
   rw [encCore]
@@ -617,10 +619,156 @@ theorem decCore_unbounded_right_inv_encCore (first : Bool := true)
       . case _ => simp
 
 private
-theorem decCore_bounded_right_inv_encCore
-  (bound : Nat) (inBound : acc < bound) (first : Bool := true)
-  : decCore (encCore n [] ++ l) shift acc (Output.bounded bound inBound) first =
-    ok (⟨n <<< shift + acc, sorry⟩, l) := by sorry
+theorem shiftLeft_le_shiftLeft_of_le {a b s : Nat} (h : a ≤ b)
+  : a <<< s ≤ b <<< s := by
+  rw [Nat.shiftLeft_eq, Nat.shiftLeft_eq]
+  apply Nat.mul_le_mul_right
+  exact h
+
+private
+theorem UInt8.le_iff_val_lt_val {a b : UInt8} : a ≤ b ↔ a.val ≤ b.val := .rfl
+
+private
+theorem Nat.mod_le_of_le {a b c : Nat} (h : a ≤ c)
+  : a % b ≤ c := by
+  by_cases h' : a < b
+  . rwa [Nat.mod_eq_of_lt h']
+  . apply Nat.le_trans
+    . show _ ≤ a
+      exact Nat.mod_le _ _
+    . exact h
+
+set_option maxHeartbeats 2000000
+private
+theorem decCore_bounded_right_inv_encCore (bound : Nat)
+  (acc_inBound : acc < bound) (res_inBound : n <<< shift + acc < bound)
+  (first : Bool := true)
+  : decCore (encCore n [] ++ l) shift acc (Output.bounded bound acc_inBound) first =
+    ok (⟨n <<< shift + acc, res_inBound⟩, l) := by
+  rw [decCore, encCore]
+  simp
+  by_cases h₀ : n ≤ 127
+  . rw [dif_pos h₀] -- there's only one entry remaining in the encoding
+    dsimp [Stream.next?, List.reverse]
+    rw [if_pos (by
+      show _ &&& 128 = 0
+      dsimp [UInt8.ofNatCore, HAnd.hAnd, AndOp.and, UInt8.land, Fin.land]
+      simp
+      congr
+      simp [Nat.land, Nat.bitwise, Nat.div_div_eq_div_mul]
+      intro _ _ _ _ _ _ _ _
+      rw [Nat.div_eq_of_lt (by linarith)]
+    ), dif_neg (by
+      simp
+      apply Nat.lt_of_le_of_lt
+      · show _ ≤ n <<< shift + acc
+        simp
+        apply shiftLeft_le_shiftLeft_of_le
+        dsimp [UInt8.ofNatCore, HAnd.hAnd, AndOp.and, UInt8.land, Fin.land]
+        simp
+        show (n &&& 2 ^ 7 - 1) % UInt8.size ≤ n
+        apply Nat.mod_le_of_le
+        rw [Nat.and_pow_two_is_mod]
+        exact Nat.mod_le _ _
+      · exact res_inBound
+    )]
+    congr
+    show (n &&& 127) % UInt8.size = n
+    have : n &&& 127 = n := by
+      have : 127 = 2 ^ 7 - 1 := by simp
+      rw [this, Nat.and_pow_two_identity (by linarith)]
+    rw [this]
+    simp
+    linarith
+  . rw [dif_neg h₀] -- there are more entries
+    dsimp [Stream.next?]
+    split
+    . case _ x xs' h₁ => -- the encoding is non-empty
+      split at h₁
+      . contradiction
+      case _ x' xs'' h₂ =>
+      simp at h₁
+      rw [h₁.left, h₁.right, ← List.nil_append [_],
+          encCore_append_acc_eq (xs := [])] at h₂
+      simp at h₂
+      have : x &&& 128 ≠ 0 := by
+        rw [← h₂.left]
+        dsimp [UInt8.ofNatCore, HAnd.hAnd, AndOp.and, UInt8.land, Fin.land]
+        simp
+        push_neg
+        apply UInt8.ne_of_val_ne
+        apply Fin.ne_of_val_ne
+        simp
+        show ((n &&& 127 ||| 128) &&& 2 ^ 7) % UInt8.size ≠ 0
+        rw [Nat.and_two_pow _ 7, Nat.testBit_or]
+        simp
+      have acc_inBound' : (x &&& 127).toNat <<< shift + acc < bound := by
+        apply Nat.lt_of_le_of_lt
+        . show _ ≤ n <<< shift + acc
+          simp
+          apply shiftLeft_le_shiftLeft_of_le
+          rw [← h₂.left]
+          dsimp [UInt8.ofNatCore, HAnd.hAnd, AndOp.and, UInt8.land, Fin.land]
+          simp
+          show ((n &&& 127 ||| 2 ^ 7 * 1) &&& 2 ^ 7 - 1) % UInt8.size ≤ n
+          apply Nat.mod_le_of_le
+          have : n &&& 127 < 2 ^ 7 := by
+            apply Nat.and_lt_two_pow
+            decide
+          rw [Nat.and_pow_two_is_mod, Nat.lor_comm,
+              ← Nat.mul_add_lt_is_or this _, Nat.mul_one, Nat.add_mod_left,
+              Nat.mod_eq_of_lt (by linarith), Nat.and_pow_two_is_mod n 7]
+          exact Nat.mod_le _ _
+        . exact res_inBound
+      rw [if_neg this, dif_neg (not_le_of_lt acc_inBound')]
+      have res_eq : n >>> 7 <<< (shift + 7) + ((x &&& 127).toNat <<< shift + acc) =
+        n <<< shift + acc := by
+        symm
+        nth_rw 1 [← shiftRight_shiftLeft n 7, shiftLeft_right_distrib,
+            ← Nat.shiftLeft_add, Nat.add_comm 7 shift, Nat.add_assoc,
+            ← Nat.and_pow_two_is_mod n 7, (by decide : 2 ^ 7 - 1 = 127)]
+        congr
+        rw [← h₂.left]
+        dsimp [UInt8.toNat, UInt8.ofNatCore, HAnd.hAnd, AndOp.and, UInt8.land,
+                Fin.land]
+        simp
+        show n &&& 127 = ((n &&& 127 ||| (2 ^ 7 * 1)) &&& (2 ^ 7 - 1)) % (2 ^ 8)
+        have : n &&& 127 < 2 ^ 7 := by
+          apply Nat.and_lt_two_pow
+          decide
+        rw [Nat.lor_comm, Nat.and_pow_two_is_mod,
+            ← Nat.mul_add_lt_is_or this _, Nat.mul_one,
+            Nat.add_mod_left, Nat.mod_eq_of_lt this,
+            Nat.mod_eq_of_lt (by linarith)]
+      have res_inBound' : n >>> 7 <<< (shift + 7) +
+        ((x &&& 127).toNat <<< shift + acc) < bound := by rwa [res_eq]
+      have : PSigma.mk (β := fun acc' ↦ acc' < bound) (n <<< shift + acc)
+        res_inBound = ⟨(n >>> 7) <<< (shift + 7) +
+        ((x &&& 127).toNat <<< shift + acc), res_inBound'⟩ := by
+        simp
+        constructor
+        . exact res_eq.symm
+        . congr!
+      rw [this]
+      rw [← decCore_bounded_right_inv_encCore bound acc_inBound' res_inBound'
+            (first := false)]
+      congr
+      exact symm h₂.right
+    . case _ h₁ => -- the encoding is empty
+      absurd h₁
+      split
+      . case _ heq =>
+        induction l with
+        | nil =>
+          rw [List.append_nil] at heq
+          have : (encCore (n >>> 7) _).length = 0 := by
+            rw [heq]
+            simp
+          absurd this
+          apply Nat.ne_of_gt
+          apply encCore_length_ge
+        | cons _ _ => simp at heq
+      . case _ => simp
 
 theorem encUvarint_right_inv_decUvarint :
   decUvarint (encUvarint n ++ l) = ok (n, l) := by
